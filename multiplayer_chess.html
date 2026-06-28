@@ -191,8 +191,17 @@
         import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // 1. Initialize Firebase (The Cloud Database)
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-chess-app';
+        const firebaseConfig = {
+  apiKey: "AIzaSyCU1YO-DX6up2C1kFd6iiIWMrjeW8Lnt-8",
+  authDomain: "multiplayer-chess-cf387.firebaseapp.com",
+  projectId: "multiplayer-chess-cf387",
+  storageBucket: "multiplayer-chess-cf387.firebasestorage.app",
+  messagingSenderId: "142776105880",
+  appId: "1:142776105880:web:d631745ebe41d6621a89ed",
+  measurementId: "G-B1XZ3B2BVX"
+};
+
+const appId = 'my-multiplayer-chess';
         
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
