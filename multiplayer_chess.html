@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Web Chess</title>
+    
+    <!-- chess.js library for game rules -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #2c3e50;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        h1 { margin-bottom: 5px; text-align: center; }
+        
+        .panel {
+            background-color: #34495e;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            min-width: 300px;
+        }
+
+        input {
+            padding: 12px;
+            font-size: 1.2rem;
+            border: 2px solid #2c3e50;
+            border-radius: 6px;
+            text-align: center;
+            text-transform: uppercase;
+            outline: none;
+            width: 80%;
+        }
+
+        input:focus {
+            border-color: #3498db;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 1.1rem;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s;
+            width: 100%;
+        }
+
+        button:hover { background-color: #2980b9; }
+        
+        .join-section {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+        }
+
+        #error-message {
+            color: #e74c3c;
+            font-weight: bold;
+            min-height: 20px;
+        }
+
+        /* Game UI */
+        #game-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .room-badge {
+            background-color: #e67e22;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 1.2rem;
+            letter-spacing: 2px;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+
+        #status {
+            font-size: 1.2rem;
+            color: #f1c40f;
+            font-weight: bold;
+            height: 24px;
+        }
+
+        /* The Chess Board Frame */
+        #board {
+            display: grid;
+            grid-template-columns: repeat(8, 40px);
+            grid-template-rows: repeat(8, 40px);
+            border: 8px solid #34495e;
+            border-radius: 4px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            background-color: #34495e;
+        }
+        
+        @media (min-width: 500px) {
+            #board {
+                grid-template-columns: repeat(8, 60px);
+                grid-template-rows: repeat(8, 60px);
+            }
+        }
+
+        /* Individual Squares */
+        .square {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        @media (min-width: 500px) {
+            .square { font-size: 40px; }
+        }
+
+        .light { background-color: #eeeed2; }
+        .dark { background-color: #769656; }
+        .selected { background-color: #f6f669 !important; }
+
+        .piece { transition: transform 0.1s; pointer-events: none; }
+        .white-piece { color: #ffffff; text-shadow: 0 2px 4px rgba(0,0,0,0.6); }
+        .black-piece { color: #000000; text-shadow: 0 2px 4px rgba(255,255,255,0.4); }
+
+    </style>
+</head>
+<body>
+
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="panel">
+        <h2>Connecting to Server...</h2>
+        <p>Please wait a moment.</p>
+    </div>
+
+    <!-- Main Lobby -->
+    <div id="lobby-screen" class="panel" style="display: none;">
+        <h1>Online Chess</h1>
+        <p>Play with a friend anywhere!</p>
+        
+        <button id="btn-create">Start New Game</button>
+        
+        <div style="margin: 15px 0; border-bottom: 2px solid #2c3e50; width: 100%;"></div>
+        
+        <p style="margin: 0; font-size: 0.9rem; color: #bdc3c7;">Or join an existing game:</p>
+        <div class="join-section">
+            <input type="text" id="input-room" placeholder="ROOM CODE" maxlength="5">
+            <button id="btn-join" style="width: auto;">Join</button>
+        </div>
+        <div id="error-message"></div>
+    </div>
+
+    <!-- Active Game Screen -->
+    <div id="game-screen" style="display: none;">
+        <div id="game-header">
+            <div class="room-badge" id="room-display">CODE: -----</div>
+            <div id="opponent-status" style="margin-bottom: 5px; color: #bdc3c7;">Waiting for opponent...</div>
+            <div id="status">White's turn</div>
+        </div>
+
+        <div id="board"></div>
+
+        <div style="text-align: center; margin-top: 20px;">
+            <button id="btn-leave" style="background-color: #e74c3c; width: auto;">Leave Game</button>
+        </div>
+    </div>
+
+    <!-- Firebase Connection and Game Logic -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // 1. Initialize Firebase (The Cloud Database)
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-chess-app';
+        
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // 2. Global Game State
+        const game = new Chess();
+        let user = null;
+        let myColor = null; // 'w' or 'b'
+        let currentGameId = null;
+        let selectedSquare = null;
+        let unsubscribe = null; // To stop listening to the database when we leave
+        let isOpponentConnected = false;
+
+        // UI Elements
+        const loadingScreen = document.getElementById('loading-screen');
+        const lobbyScreen = document.getElementById('lobby-screen');
+        const gameScreen = document.getElementById('game-screen');
+        const boardElement = document.getElementById('board');
+        const statusElement = document.getElementById('status');
+        const opponentStatus = document.getElementById('opponent-status');
+        const roomDisplay = document.getElementById('room-display');
+        const errorMsg = document.getElementById('error-message');
+
+        const pieceIcons = { 'p': '♟', 'n': '♞', 'b': '♝', 'r': '♜', 'q': '♛', 'k': '♚' };
+
+        // 3. Connect User to Firebase Anonymously
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                loadingScreen.innerHTML = "<h2>Connection Error</h2><p>Could not connect to multiplayer servers.</p>";
+            }
+        };
+        
+        onAuthStateChanged(auth, (currentUser) => {
+            if (currentUser) {
+                user = currentUser;
+                loadingScreen.style.display = 'none';
+                lobbyScreen.style.display = 'flex';
+            }
+        });
+
+        initAuth();
+
+        // 4. Lobby Functions: Create & Join
+        document.getElementById('btn-create').addEventListener('click', async () => {
+            if (!user) return;
+            
+            // Generate a random 5 letter/number code
+            const gameId = Math.random().toString(36).substring(2, 7).toUpperCase();
+            currentGameId = gameId;
+            myColor = 'w'; // Creator is always White
+            game.reset();
+            
+            // Create the game document in the cloud
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'chess_games', gameId), {
+                fen: game.fen(),
+                playerWhite: user.uid,
+                playerBlack: null,
+                createdAt: new Date().toISOString()
+            });
+
+            startGame(gameId);
+        });
+
+        document.getElementById('btn-join').addEventListener('click', async () => {
+            if (!user) return;
+            const gameId = document.getElementById('input-room').value.toUpperCase().trim();
+            if (gameId.length !== 5) {
+                errorMsg.innerText = "Please enter a valid 5-character code.";
+                return;
+            }
+
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'chess_games', gameId);
+            const docSnap = await getDoc(docRef);
+            
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                
+                // If there is no black player, OR if we are re-joining our own game
+                if (!data.playerBlack && data.playerWhite !== user.uid) {
+                    // Join as Black
+                    await setDoc(docRef, { playerBlack: user.uid }, { merge: true });
+                    myColor = 'b';
+                } else if (data.playerWhite === user.uid) {
+                    myColor = 'w';
+                } else if (data.playerBlack === user.uid) {
+                    myColor = 'b';
+                } else {
+                    errorMsg.innerText = "This game is already full!";
+                    return;
+                }
+
+                currentGameId = gameId;
+                game.load(data.fen); // Load the current state of the board
+                startGame(gameId);
+            } else {
+                errorMsg.innerText = "Game not found. Check the code.";
+            }
+        });
+
+        document.getElementById('btn-leave').addEventListener('click', () => {
+            if (unsubscribe) unsubscribe();
+            lobbyScreen.style.display = 'flex';
+            gameScreen.style.display = 'none';
+            currentGameId = null;
+            document.getElementById('input-room').value = '';
+            errorMsg.innerText = '';
+        });
+
+        // 5. Start Game & Cloud Listener
+        function startGame(gameId) {
+            lobbyScreen.style.display = 'none';
+            gameScreen.style.display = 'block';
+            roomDisplay.innerText = `CODE: ${gameId}`;
+            createBoard();
+
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'chess_games', gameId);
+            
+            // Listen in real-time for changes from the opponent
+            unsubscribe = onSnapshot(docRef, (snap) => {
+                if (snap.exists()) {
+                    const data = snap.data();
+                    
+                    // Did the opponent join?
+                    if (data.playerWhite && data.playerBlack) {
+                        isOpponentConnected = true;
+                        opponentStatus.innerText = `Game Started! You are playing as ${myColor === 'w' ? 'WHITE' : 'BLACK'}.`;
+                        opponentStatus.style.color = "#2ecc71"; // Green text
+                    }
+
+                    // Did the opponent make a move?
+                    if (data.fen && data.fen !== game.fen()) {
+                        game.load(data.fen);
+                        selectedSquare = null;
+                        createBoard();
+                    }
+                }
+            }, (err) => {
+                console.error("Sync error:", err);
+            });
+        }
+
+        // 6. Draw the Board (Flips automatically if you are playing Black!)
+        function createBoard() {
+            boardElement.innerHTML = ''; 
+
+            for (let i = 0; i < 8; i++) {
+                for (let j = 0; j < 8; j++) {
+                    
+                    // If we are black, we want the board to be drawn upside down from our perspective
+                    let renderRow = myColor === 'b' ? 7 - i : i;
+                    let renderCol = myColor === 'b' ? 7 - j : j;
+                    
+                    const letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+                    const squareId = letters[renderCol] + (8 - renderRow);
+
+                    const squareDiv = document.createElement('div');
+                    squareDiv.className = 'square';
+                    squareDiv.id = squareId;
+
+                    if ((renderRow + renderCol) % 2 === 0) {
+                        squareDiv.classList.add('light');
+                    } else {
+                        squareDiv.classList.add('dark');
+                    }
+
+                    const piece = game.get(squareId);
+                    if (piece) {
+                        const pieceSpan = document.createElement('span');
+                        pieceSpan.className = 'piece';
+                        pieceSpan.innerText = pieceIcons[piece.type];
+                        pieceSpan.classList.add(piece.color === 'w' ? 'white-piece' : 'black-piece');
+                        squareDiv.appendChild(pieceSpan);
+                    }
+
+                    squareDiv.addEventListener('click', () => handleSquareClick(squareId));
+                    boardElement.appendChild(squareDiv);
+                }
+            }
+            updateStatus();
+        }
+
+        // 7. Handle Movements
+        function handleSquareClick(squareId) {
+            if (game.game_over() || !isOpponentConnected) return;
+
+            // Security Check: You can only move your own pieces on your turn
+            if (myColor !== game.turn()) {
+                return; // It's not your turn!
+            }
+
+            const clickedSquareInfo = game.get(squareId);
+
+            if (selectedSquare === null) {
+                if (clickedSquareInfo && clickedSquareInfo.color === myColor) {
+                    selectedSquare = squareId;
+                    document.getElementById(squareId).classList.add('selected');
+                }
+                return;
+            }
+
+            if (selectedSquare !== null) {
+                const move = game.move({
+                    from: selectedSquare,
+                    to: squareId,
+                    promotion: 'q' 
+                });
+
+                if (move === null) {
+                    if (clickedSquareInfo && clickedSquareInfo.color === myColor) {
+                        document.getElementById(selectedSquare).classList.remove('selected');
+                        selectedSquare = squareId;
+                        document.getElementById(squareId).classList.add('selected');
+                    } else {
+                        document.getElementById(selectedSquare).classList.remove('selected');
+                        selectedSquare = null;
+                    }
+                } else {
+                    // 💥 The move was valid! 
+                    selectedSquare = null;
+                    createBoard(); // Redraw our local board instantly
+                    
+                    // Send the move up to the cloud so the opponent sees it
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'chess_games', currentGameId);
+                    setDoc(docRef, { fen: game.fen() }, { merge: true })
+                        .catch(err => console.error("Could not send move to server", err));
+                }
+            }
+        }
+
+        // 8. Text Status Updates
+        function updateStatus() {
+            let turnText = game.turn() === 'w' ? "White's turn" : "Black's turn";
+            if (myColor === game.turn()) turnText = "Your turn!";
+
+            if (game.in_checkmate()) {
+                statusElement.innerText = `Checkmate! ${game.turn() === 'w' ? 'Black' : 'White'} wins! 🏆`;
+            } else if (game.in_draw()) {
+                statusElement.innerText = "Game ended in a draw! 🤝";
+            } else if (game.in_check()) {
+                statusElement.innerText = `Check! ${turnText}`;
+            } else {
+                statusElement.innerText = turnText;
+            }
+        }
+
+    </script>
+</body>
+</html>
